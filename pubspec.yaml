@@ -38,13 +38,7 @@ dependencies:
   http: ^1.4.0
   path_provider: ^2.1.5
   open_filex:  ^4.7.0
-  # الأساسى
-  # ↓↓↓  WebView طبقات المنصّات
-  webview_flutter_android: ^4.7.0
-  webview_flutter_wkwebview: ^3.22.0     # (iOS / macOS – اختيارى)
-  webview_flutter_platform_interface: ^2.10.0   # ★ ضِفها صراحةً ★
   model_viewer_plus: ^1.9.3
-  webview_windows: ^0.4.0            # Windows
   webview_flutter: ^4.7.0
   flutter_inappwebview: ^6.0.0
 dev_dependencies:
