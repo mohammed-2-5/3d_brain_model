@@ -11,11 +11,13 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:http_parser/http_parser.dart';   //  ← جديد
 
 void main() => runApp(const BrainSegApp());
 
@@ -45,11 +47,37 @@ class _HomePageState extends State<HomePage> {
     required String field,
     required PlatformFile pf,
   }) {
-    if (pf.bytes != null) {
-      return http.MultipartFile.fromBytes(field, pf.bytes!, filename: pf.name);
-    }
-    final bytes = File(pf.path!).readAsBytesSync();
-    return http.MultipartFile.fromBytes(field, bytes, filename: pf.name);
+    // 1) نحصل على الـ bytes
+    final Uint8List bytes = pf.bytes ?? File(pf.path!).readAsBytesSync();
+
+    final bool needGzip = pf.extension?.toLowerCase() == 'nii';
+    final List<int> payload = needGzip ? GZipCodec().encode(bytes) : bytes;
+
+    // 3) اسم الملف (إن لزم)
+    final String fname = needGzip ? '${pf.name}.gz' : pf.name;
+
+    /* ─── سجلّ مفصّل مع نسبة التوفير ─── */
+    final double kbBefore = bytes.length / 1024;
+    final double kbAfter  = payload.length / 1024;
+    final double saving   =
+    kbBefore == 0 ? 0 : (1 - kbAfter / kbBefore) * 100;
+
+    debugPrint(
+      '[$field]  ${pf.name}'
+          '  • before=${kbBefore.toStringAsFixed(0)} KB'
+          '  • after=${kbAfter.toStringAsFixed(0)} KB'
+          '  • saved=${saving.toStringAsFixed(1)} %'
+          '  • gzipped=$needGzip',
+    );
+
+    return http.MultipartFile.fromBytes(
+      field,
+      payload,
+      filename: fname,
+      contentType: needGzip
+          ? MediaType('application', 'gzip')
+          : MediaType('application', 'octet-stream'),
+    );
   }
 
   /*━━━━━━━━ 2-B) الملفات المُختارة ━━━━━━━━*/
@@ -111,7 +139,11 @@ class _HomePageState extends State<HomePage> {
     final req = http.MultipartRequest('POST', Uri.parse('$_base/predict'))
       ..files.add(_multipart(field: 'nifti_flair', pf: flairFile!))
       ..files.add(_multipart(field: 'nifti_t1ce', pf: t1ceFile!));
-
+// طباعة المقاسات بعد تكوين الـ request
+    for (final f in req.files) {
+      debugPrint('→ will send  ${f.field} : '
+          '${f.filename}  (${f.length ~/ 1024} KB)');
+    }
     try {
       final resp =
       await http.Response.fromStream(await _http.send(req).timeout(const Duration(minutes: 5)));
@@ -214,7 +246,6 @@ class _HomePageState extends State<HomePage> {
       debugPrint('[brain_mesh] status=${resp.statusCode}');
       debugPrint('[brain_mesh] raw    =${resp.body}');
       if (resp.statusCode != 200) throw resp.body;
-
       final data  = jsonDecode(resp.body);
       final bts   = (await _http.get(Uri.parse('$_base${data['url']}'))).bodyBytes;
       final docs  = await getApplicationDocumentsDirectory();
